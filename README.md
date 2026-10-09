@@ -181,13 +181,3 @@ XML + visual + semantic verification
 orchestrator decides PASS / RETRY / HUMAN REVIEW
 ```
 
-## Git
-
-```bash
-git init
-git add .
-git commit -m "Initial multi-agent PPT editing system"
-git branch -M main
-git remote add origin <YOUR_REPOSITORY_URL>
-git push -u origin main
-```
