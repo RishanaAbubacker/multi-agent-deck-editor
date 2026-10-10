@@ -1,16 +1,20 @@
-from schemas.models import EditAction, EditPlan
+import json
+from langchain_core.prompts import ChatPromptTemplate
+from llm.model_factory import get_chat_model
+from prompts.planner import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
+from schemas.models import AuditResult, EditPlan
+from document.pptx_editor import SUPPORTED_OPERATIONS
 
 class PlannerAgent:
-    name = "planner_agent"
+    def __init__(self, llm=None):
+        self.llm = llm or get_chat_model()
+        self.chain = ChatPromptTemplate.from_messages([
+            ("system", PLANNER_SYSTEM_PROMPT), ("human", PLANNER_USER_PROMPT)
+        ]) | self.llm.with_structured_output(EditPlan)
 
-    def run(self, issues):
-        actions = []
-        for i, issue in enumerate(issues, 1):
-            if issue.category == "content_formatting" and issue.slide_number:
-                actions.append(EditAction(
-                    action_id=f"edit-{i}",
-                    action="strip_text_whitespace",
-                    slide_number=issue.slide_number,
-                    reason=issue.description
-                ))
-        return EditPlan(actions=actions, assumptions=[])
+    def run(self, audit_result: AuditResult, target_structure: dict) -> EditPlan:
+        return self.chain.invoke({
+            "audit_result": audit_result.model_dump_json(indent=2),
+            "target_structure": json.dumps(target_structure, ensure_ascii=False),
+            "supported_operations": json.dumps(SUPPORTED_OPERATIONS),
+        })

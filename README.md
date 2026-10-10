@@ -1,183 +1,85 @@
-# PPT Multi-Agent Editing System
+# LLM-Based PowerPoint Correction Workflow
 
-A traceable, resumable MVP for editing PowerPoint decks against a reference/template deck and a rules file.
+A folder-structured Python project using **LangChain** for structured LLM calls and **LangGraph** for orchestration. It compares a target PowerPoint deck with a reference deck, plans corrections, executes supported edits, and verifies the result.
+
+> Important: The LLM decides what to change. The Python editor writes changes into the `.pptx` file. The LLM cannot directly rewrite the binary PowerPoint package without an execution layer.
 
 ## Architecture
 
 ```text
-Input PPTX + Reference PPTX + rules.md
-                  |
-                  v
-             Rules Agent
-                  |
-                  v
-          Reference Agent
-                  |
-                  v
-           Deck Analyzer
-                  |
-                  v
-          Planner / Editor
-                  |
-                  v
-        PPTX Mutation Engine
-                  |
-                  v
-       XML + Semantic Comparison
-                  |
-                  v
-          Verification Agent
-                  |
-             PASS / RETRY
-                  |
-                  v
-            Orchestrator
+load_context -> analyze -> plan -> edit -> verify
+                               |         ^      |
+                               | no edits|      | failed and retries remain
+                               +-------> verify +----> analyze
+                                         |
+                                       finish
 ```
 
-The **LangGraph-based orchestrator is the central controller**. It owns iteration control, execution state, artifacts, audit logs, and retry decisions.
+Existing workflow nodes are retained: `load_context`, `analyze`, `plan`, `edit`, `verify`, `finish`. There is no rules file and no RulesAgent.
 
-## Design principles
-
-1. **LLMs reason; Python mutates files.** An eventual LLM planner should output structured edit actions. `python-pptx` performs deterministic mutations.
-2. **Reference deck = source of truth for structure/style**, not automatic content source.
-3. **Rules are explicit** in `rules.md`.
-4. **Every mutation and assumption is logged.**
-5. **Every iteration is checkpointed** in `state.json`.
-6. **Verification happens after mutation.**
-7. XML comparison is evidence, not a claim that two different-content decks should be byte-for-byte identical.
-
-## Project structure
+## Folder structure
 
 ```text
-ppt_multi_agent/
-├── README.md
-├── rules.md
-├── requirements.txt
-├── main.py
-├── .gitignore
-├── agents/
-│   ├── rules_agent.py
-│   ├── reference_agent.py
-│   ├── deck_analyzer.py
-│   ├── planner_agent.py
-│   ├── editor_agent.py
-│   └── verifier_agent.py
-├── comparison/
-│   └── xml_comparator.py
-├── document/
-│   ├── pptx_inspector.py
-│   └── pptx_xml.py
-├── schemas/
-│   └── models.py
-├── state/
-│   ├── execution_state.py
-│   ├── audit_logger.py
-│   └── artifact_manager.py
-├── workflow/
-│   └── orchestrator.py
+ppt_llm_correction_workflow/
+├── app/                 # CLI entry point
+├── agents/              # Reference inspection and LLM-based audit/plan/edit/verify
+├── comparison/          # Optional comparison helpers
+├── config/              # Environment-backed settings
+├── document/            # PPTX inspection and deterministic editing operations
+├── llm/                 # LangChain chat-model factory
+├── prompts/             # One structured prompt module per LLM call
+├── schemas/             # Pydantic output schemas and LangGraph state
+├── state/               # Artifacts and audit logging
+├── workflow/            # LangGraph orchestration and retry routing
 ├── tests/
-│   └── test_xml.py
-└── artifacts/
+├── artifacts/
+├── .env.example
+└── requirements.txt
 ```
 
-## Installation
+## Setup
 
-Python 3.10+:
+Python 3.10+ is recommended.
 
 ```bash
 python -m venv .venv
-```
-
-Windows:
-
-```powershell
-.venv\Scripts\activate
-```
-
-macOS/Linux:
-
-```bash
+# Windows PowerShell:
+.venv\\Scripts\\Activate.ps1
+# macOS/Linux:
 source .venv/bin/activate
-```
-
-Install:
-
-```bash
 pip install -r requirements.txt
+cp .env.example .env
 ```
+
+Set `OPENAI_API_KEY` in `.env`. Configure `LLM_MODEL` if you want a different model supported by `langchain-openai`.
 
 ## Run
 
 ```bash
-python main.py --deck input.pptx --reference reference.pptx --rules rules.md --max-iterations 3
+python -m app.main --target path/to/target.pptx --reference path/to/reference.pptx --output-dir artifacts/run_001 --max-iterations 3
 ```
 
-Each run creates:
+Outputs are written under the chosen output directory, including the final deck, per-iteration audit/plans/verification JSON, a run summary, and `audit_log.jsonl`.
 
-```text
-artifacts/<run_id>/
-├── input/
-│   ├── deck.pptx
-│   ├── reference.pptx
-│   └── rules.md
-├── iterations/
-│   ├── iteration_01/
-│   │   ├── working.pptx
-│   │   ├── comparison.json
-│   │   └── verification.json
-│   └── ...
-├── final/
-│   └── finished.pptx
-├── state.json
-└── audit.jsonl
-```
+## LLM calls
 
-## Current MVP
+1. `DeckAnalyzer`: slide-by-slide audit; returns `AuditResult`.
+2. `PlannerAgent`: converts findings to supported operations; returns `EditPlan`.
+3. `EditorAgent`: selects exact approved operations; returns `EditExecutionPlan`; Python applies them.
+4. `VerifierAgent`: reassesses the edited deck; returns `VerificationResult`.
 
-The workflow is orchestrated with **LangGraph**, with conditional routing from verification back to analysis when a retry is required.
+Every LLM call uses `ChatPromptTemplate` and `with_structured_output(...)` with a Pydantic schema.
 
-- Rules parser
-- Reference deck inspection
-- PPTX structural inspection
-- Deterministic issue detection
-- Structured edit plan
-- Safe text-whitespace mutation
-- PPTX XML package comparison
-- Verification
-- Execution state
-- Artifact tracking
-- JSONL audit trail
-- Iterative orchestration
+## Supported editing operations
 
-## Future production layer
+The initial editor supports `replace_text`, `set_font_size`, `set_bold`, `set_italic`, `set_font_name`, `set_font_color`, `set_shape_position`, and `set_shape_size`. Position and size use PowerPoint EMU units, not pixels or points.
 
-The contracts are designed so you can add:
+Unsupported PowerPoint constructs or operations should be reported rather than guessed. Replacing an entire text frame may affect run-level formatting, so review such operations carefully.
 
-- OpenAI/other LLM structured outputs
-- LangGraph orchestration
-- slide rendering + visual diffing
-- semantic comparison of slide content
-- PowerPoint theme/master analysis
-- human approval gates
-- persistent database-backed state
-- resumable runs
-- richer edit operations
+## Limitations to address before production
 
-Recommended production pattern:
-
-```text
-PPTX / rules / reference
-        ↓
-deterministic extraction
-        ↓
-LLM planner
-        ↓
-Pydantic EditPlan
-        ↓
-deterministic editor
-        ↓
-XML + visual + semantic verification
-        ↓
-orchestrator decides PASS / RETRY / HUMAN REVIEW
-```
-
+- The inspector extracts text and basic run formatting/geometry; it does not yet fully inspect charts, SmartArt, animation, all paragraph/shape styling, or every PowerPoint feature.
+- Slide/shape matching is LLM-guided and can be ambiguous when decks differ substantially.
+- A vision-capable model plus rendered slide images is needed for richer visual comparison.
+- Add stricter operation-parameter validation and tests before running on important presentations.
+- `VERIFIED` means the verifier returned `passed=true`; `UNVERIFIED` means the workflow ended without a verified pass.

@@ -1,37 +1,33 @@
-from hashlib import sha256
-from pathlib import Path
+import json
 import shutil
-from schemas.models import Artifact
+from pathlib import Path
+from uuid import uuid4
 
 class ArtifactManager:
     def __init__(self, root: Path):
         self.root = root
-        self.input_dir = root/"input"
-        self.iterations_dir = root/"iterations"
-        self.final_dir = root/"final"
-        for d in [self.input_dir, self.iterations_dir, self.final_dir]:
-            d.mkdir(parents=True, exist_ok=True)
-        self.state_path = root/"state.json"
-        self.audit_path = root/"audit.jsonl"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.iterations = self.root / "iterations"
+        self.iterations.mkdir(exist_ok=True)
 
-    def copy_input(self, source: Path, name: str):
-        target = self.input_dir/name
-        shutil.copy2(source, target)
-        return target
+    def iteration_dir(self, iteration: int) -> Path:
+        path = self.iterations / f"iteration_{iteration:02d}"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
-    def iteration_dir(self, iteration: int):
-        d = self.iterations_dir/f"iteration_{iteration:02d}"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+    def copy_input(self, source: Path, name: str) -> Path:
+        dest = self.root / "inputs" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        return dest
 
-    def register(self, path: Path, artifact_type: str, iteration: int, created_by: str):
-        return Artifact(
-            path=str(path), artifact_type=artifact_type,
-            iteration=iteration, created_by=created_by,
-            hash=sha256(path.read_bytes()).hexdigest()
-        )
+    def write_json(self, name: str, data) -> Path:
+        path = self.root / name
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return path
 
-    def save_final(self, source: Path):
-        target = self.final_dir/"finished.pptx"
-        shutil.copy2(source, target)
-        return target
+    def save_final(self, source: Path) -> Path:
+        dest = self.root / "final" / "finished.pptx"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest)
+        return dest

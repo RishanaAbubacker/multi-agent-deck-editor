@@ -1,23 +1,22 @@
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 from pydantic import BaseModel, Field
 
-class Rule(BaseModel):
-    category: str
-    text: str
-
-class RulesDocument(BaseModel):
-    source: str
-    rules: list[Rule] = Field(default_factory=list)
+Severity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+OperationName = Literal[
+    "replace_text", "set_font_size", "set_bold", "set_italic",
+    "set_font_name", "set_font_color", "set_shape_position", "set_shape_size"
+]
 
 class ShapeInfo(BaseModel):
     shape_id: int
-    shape_type: str
     name: str
+    shape_type: str
     left: int
     top: int
     width: int
     height: int
     text: str = ""
+    font_runs: list[dict[str, Any]] = Field(default_factory=list)
 
 class SlideInfo(BaseModel):
     slide_number: int
@@ -30,52 +29,75 @@ class DeckInfo(BaseModel):
     slide_height: int
     slides: list[SlideInfo] = Field(default_factory=list)
 
-class Issue(BaseModel):
+class AuditIssue(BaseModel):
     issue_id: str
-    severity: Literal["LOW","MEDIUM","HIGH"]
+    reference_slide: int | None = None
+    target_slide: int | None = None
+    element_identifier: str = ""
     category: str
+    severity: Severity
+    reference_value: str = ""
+    target_value: str = ""
     description: str
-    slide_number: int | None = None
+    recommended_correction: str = ""
+    evidence: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.8, ge=0, le=1)
+
+class AuditResult(BaseModel):
+    issues: list[AuditIssue] = Field(default_factory=list)
+    summary: str = ""
 
 class EditAction(BaseModel):
     action_id: str
-    action: str
+    issue_id: str
     slide_number: int
-    shape_id: int | None = None
+    shape_id: int
+    operation: OperationName
+    parameters: dict[str, Any] = Field(default_factory=dict)
     reason: str
-    old_value: str | None = None
-    new_value: str | None = None
+    postcondition: str
 
 class EditPlan(BaseModel):
     actions: list[EditAction] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
+    items_requiring_review: list[str] = Field(default_factory=list)
+    summary: str = ""
 
-class AgentExecution(BaseModel):
-    agent: str
-    iteration: int
-    status: str
-    input_artifacts: list[str] = Field(default_factory=list)
-    output_artifacts: list[str] = Field(default_factory=list)
-    reasoning_summary: str = ""
+class EditExecutionPlan(BaseModel):
+    actions: list[EditAction] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+class OperationResult(BaseModel):
+    action_id: str
+    issue_id: str
+    success: bool
+    message: str
+    slide_number: int
+    shape_id: int
+
+class VerificationIssue(BaseModel):
+    issue_id: str
+    resolved: bool
+    reason: str
+    evidence: list[str] = Field(default_factory=list)
 
 class VerificationResult(BaseModel):
     passed: bool
-    issues: list[Issue] = Field(default_factory=list)
-    xml_differences: list[dict[str,Any]] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
+    issues: list[VerificationIssue] = Field(default_factory=list)
+    new_issues: list[str] = Field(default_factory=list)
+    summary: str = ""
 
-class ExecutionState(BaseModel):
-    run_id: str
-    status: str = "RUNNING"
-    iteration: int = 0
-    input: dict[str,str] = Field(default_factory=dict)
-    agents: list[AgentExecution] = Field(default_factory=list)
-    artifacts: list[dict[str,Any]] = Field(default_factory=list)
-    changes: list[dict[str,Any]] = Field(default_factory=list)
-    assumptions: list[dict[str,Any]] = Field(default_factory=list)
-    issues: list[Issue] = Field(default_factory=list)
-    verification: VerificationResult | None = None
-    current_artifact: str = ""
-    previous_artifact: str = ""
-    started_at: str = ""
-    updated_at: str = ""
+class GraphState(TypedDict, total=False):
+    target_path: str
+    reference_path: str
+    current_path: str
+    output_dir: str
+    iteration: int
+    max_iterations: int
+    reference_structure: dict[str, Any]
+    target_structure: dict[str, Any]
+    audit_result: dict[str, Any]
+    edit_plan: dict[str, Any]
+    execution_results: list[dict[str, Any]]
+    verification: dict[str, Any]
+    final_path: str
+    status: str

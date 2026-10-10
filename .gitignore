@@ -1,11 +1,7 @@
-__pycache__/
-*.py[cod]
-.venv/
 .env
+.venv/
+__pycache__/
 .pytest_cache/
-.mypy_cache/
+*.py[cod]
 artifacts/*
 !artifacts/.gitkeep
-*.pptx
-*.ppt
-.DS_Store
